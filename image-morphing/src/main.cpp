@@ -200,7 +200,7 @@ void displayImage(cv::Mat image, GLuint texture, std::string title) {
 
 float distance(vec3 x, vec3 p, vec3 q, float u, float v) {
 	if (u >= 0 && u <= 1) {
-		return v;
+		return std::abs(v);
 	}
 	if (u > 1) {
 		return length(x - q);
@@ -228,7 +228,7 @@ void generateMorph(cv::Mat srcImg, cv::Mat tarImg) {
 		for (int i = 0; i < tW; i++) {
 			// for each pixel (i, j)
 			vec3 X = vec3(i, j, 0);
-			float a = 10, b = 1, p = 0.8;
+			float a = 50, b = 1, p = 0.2;
 			vec3 DSUM = vec3(0, 0, 0);
 			float weightsum = 0;
 			for (int k = 0; k < sourceEdges.size(); k++) {
