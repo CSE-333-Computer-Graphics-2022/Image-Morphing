@@ -188,10 +188,10 @@ void displayImage(cv::Mat image, GLuint texture, std::string title) {
 				ImGui::GetWindowDrawList()->AddLine(head, tail, IM_COL32(255, 0, 0, 255), 2);
 			}
 
-			ImGui::SetCursorPos(ImVec2(head.x - ImGui::GetWindowPos().x, head.y - ImGui::GetWindowPos().y));
-			ImGui::PushID(i);
-			ImGui::Button("##head", ImVec2(10, 10));
-			ImGui::PopID();
+			//ImGui::SetCursorPos(ImVec2(head.x - ImGui::GetWindowPos().x, head.y - ImGui::GetWindowPos().y));
+			//ImGui::PushID(i);
+			//ImGui::Button("##head", ImVec2(10, 10));
+			//ImGui::PopID();
 
 		}
 	}
@@ -228,7 +228,7 @@ void generateMorph(cv::Mat srcImg, cv::Mat tarImg) {
 		for (int i = 0; i < tW; i++) {
 			// for each pixel (i, j)
 			vec3 X = vec3(i, j, 0);
-			float a = 50, b = 1, p = 0.2;
+			float a = 10, b = 1, p = 0.8;
 			vec3 DSUM = vec3(0, 0, 0);
 			float weightsum = 0;
 			for (int k = 0; k < sourceEdges.size(); k++) {
