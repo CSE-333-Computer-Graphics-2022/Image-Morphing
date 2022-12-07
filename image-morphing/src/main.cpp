@@ -126,6 +126,7 @@ void loadImage(cv::Mat &image, std::string &buffer, GLuint &texture, const std::
 			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 			glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
 			glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, image.cols, image.rows, 0, GL_RGBA, GL_UNSIGNED_BYTE, image.data);
+			cv::cvtColor(image, image, cv::COLOR_RGBA2BGR);
 		}
 	}
 	
@@ -197,33 +198,67 @@ void displayImage(cv::Mat image, GLuint texture, std::string title) {
 	ImGui::End();
 }
 
+float distance(vec3 x, vec3 p, vec3 q, float u, float v) {
+	if (u >= 0 && u <= 1) {
+		return v;
+	}
+	if (u > 1) {
+		return length(x - q);
+	}
+	if (u < 0) {
+		return length(x - p);
+	}
+}
+
+void clampToImage(vec3& p, const cv::Mat& image) {
+	p.x = std::clamp((int)p.x, 2, image.cols - 2);
+	p.y = std::clamp((int)p.y, 2, image.rows - 2);
+}
+
 void generateMorph(cv::Mat srcImg, cv::Mat tarImg) {
 	std::cout << "generating morph\n";
-	cv::Mat morphImg(tarImg.cols, tarImg.rows, tarImg.type(), cv::Scalar(0, 0, 0));
-	for (int j = 0; j < tarImg.rows; j++) {
-		for (int i = 0; i < tarImg.cols; i++) {
+	if (sourceEdges.size() != targetEdges.size()) {
+		std::cout << "WARNING: Unequal number of edges in source and target !!\nCouldn't generate morph :(\n";
+		return;
+	}
+	int tW = tarImg.cols, tH = tarImg.rows;
+	int sW = srcImg.cols, sH = srcImg.rows;
+	cv::Mat morphImg(sH, sW, tarImg.type(), cv::Scalar(0, 0, 0));
+	for (int j = 0; j < tH; j++) {
+		for (int i = 0; i < tW; i++) {
 			// for each pixel (i, j)
 			vec3 X = vec3(i, j, 0);
-			vec3 P = vec3(trunc(targetEdges[0].head.x), trunc(targetEdges[0].head.y), 0);
-			vec3 Q = vec3(trunc(targetEdges[0].tail.x), trunc(targetEdges[0].tail.y), 0);
-			vec3 P1 = vec3(trunc(sourceEdges[0].head.x), trunc(sourceEdges[0].head.y), 0);
-			vec3 Q1 = vec3(trunc(sourceEdges[0].tail.x), trunc(sourceEdges[0].tail.y), 0);
+			float a = 10, b = 1, p = 0.8;
+			vec3 DSUM = vec3(0, 0, 0);
+			float weightsum = 0;
+			for (int k = 0; k < sourceEdges.size(); k++) {
+				Edge srcEdge = sourceEdges[k], tarEdge = targetEdges[k];
+				// destination PQ
+				vec3 P = vec3(tarEdge.head.x, tarEdge.head.y, 0);		
+				vec3 Q = vec3(tarEdge.tail.x, tarEdge.tail.y, 0);
+				// source P'Q'
+				vec3 P1 = vec3(srcEdge.head.x, srcEdge.head.y, 0);		
+				vec3 Q1 = vec3(srcEdge.tail.x, srcEdge.tail.y, 0);
 
-			float u = dot((X - P), (Q - P)) / (length(Q - P) * length(Q - P));
-			float v = dot((X - P), cross((Q - P), vec3(0, 0, 1))) / length(Q - P);
-
-			vec3 X1 = P1 + u * (Q1 - P1) + (v * cross((Q1 - P1), vec3(0, 0, 1))) / length(Q1 - P1);
-
-			std::cout << "iteration " << i << " " << j << std::endl;
-			if (X1.x >= srcImg.rows || X1.y >= srcImg.cols || X1.x < 0 || X1.y < 0) {
-				std::cout << "sample idx out of range\n";
-				continue;
+				float u = dot((X - P), (Q - P)) / (length(Q - P) * length(Q - P));
+				float v = dot((X - P), cross((Q - P), vec3(0, 0, 1))) / length(Q - P);
+				vec3 X1i = P1 + u * (Q1 - P1) + (v * cross((Q1 - P1), vec3(0, 0, 1))) / length(Q1 - P1);
+				vec3 Di = X1i - X;
+				float dist = distance(X, P, Q, u, v);
+				float weight = std::pow((std::pow(length(Q1 - P1), p) / (a + dist)), b);
+				DSUM = DSUM + Di * weight;
+				weightsum += weight;
 			}
-			std::cout << "sample idx in range :)\n";
-			morphImg.at<cv::Vec3b>(i, j) = srcImg.at<cv::Vec3b>(trunc(X1.x), trunc(X1.y));
+			vec3 X1 = X + DSUM / weightsum;
+			// if (X1.x >= sW || X1.y >= sH || X1.x < 0 || X1.y < 0) {
+			// 	continue;
+			// }
+			clampToImage(X1, srcImg);
+			morphImg.at<cv::Vec3b>(j, i) = srcImg.at<cv::Vec3b>(X1.y, X1.x);
 		}
 	}
 	imwrite("morph.png", morphImg);
+	std::cout << "morph generated\n";
 }
 
 int main() {
