@@ -207,47 +207,127 @@ void clampToImage(cv::Point2d &p, const cv::Mat &image) {
 	p.y = std::clamp((int)p.y, 0, image.rows - 1);
 }
 
-void generateMorph(cv::Mat sourceImage, cv::Mat targetImage) {
-	cv::Mat destImage(sourceImage.rows, sourceImage.cols, sourceImage.type(), cv::Scalar(0, 0, 0));
-	double a = 10, b = 1.5, p = 0.2;
-
-	for (int col = 0; col < targetImage.cols; col++) {
-		for (int row = 0; row < targetImage.rows; row++) {
-			cv::Point2d destX(col, row);
-			cv::Point2d dispSum(0, 0);
-			double weightSum = 0;
-
-			for (int i = 0; i < targetEdges.size(); i++) {
-				cv::Point2d destP = convToPoint2d(targetEdges[i].head);
-				cv::Point2d destQ = convToPoint2d(targetEdges[i].tail);
-				cv::Point2d sourceP = convToPoint2d(sourceEdges[i].head);
-				cv::Point2d sourceQ = convToPoint2d(sourceEdges[i].tail);
-
-				float u = (destX - destP).dot(destQ - destP) / (cv::norm(destQ - destP) * cv::norm(destQ - destP));
-				float v = (destX - destP).dot(perp(destQ - destP)) / cv::norm(destQ - destP);
-
-				cv::Point2d sourceX = sourceP + u * (sourceQ - sourceP) + (v * perp(sourceQ - sourceP)) / cv::norm(sourceQ - sourceP);
-				cv::Point2d disp = sourceX - destX;
-
-				double dist = 0;
-				if (u >= 1)
-					dist = cv::norm(destX - destQ);
-				else if (u <= 0)
-					dist = cv::norm(destX - destP);
-				else
-					dist = std::abs(v);
-
-				double weight = std::pow(std::pow(cv::norm(destQ - destP), p) / (a + dist), b);
-
-				weightSum += weight;
-				dispSum += disp * weight;
+void makeWhite(cv::Mat& img) {
+	for (int i = 0; i < img.cols; i++) {
+		for (int j = 0; j < img.rows; j++) {
+			cv::Point2d p(i, j);
+			if (img.at<cv::Vec3b>(p)[0] != 0 || img.at<cv::Vec3b>(p)[1] != 0 || img.at<cv::Vec3b>(p)[2] != 0) {
+				img.at<cv::Vec3b>(p)[0] = 255;
+				img.at<cv::Vec3b>(p)[1] = 255;
+				img.at<cv::Vec3b>(p)[2] = 255;
 			}
-			cv::Point2d finalX = destX + dispSum / weightSum;
-			clampToImage(finalX, sourceImage);
-			destImage.at<cv::Vec3b>(destX) = sourceImage.at<cv::Vec3b>(std::trunc(finalX.y), std::trunc(finalX.x));
 		}
 	}
-	imwrite("./morph.png", destImage);
+}
+
+
+static void getLinesUsingRidges(cv::Mat sourceImage) {
+	cv::Mat grayImg;
+	cv::Mat ridges, detectedEdges;
+	int low = 45;
+	int r = 3;
+	int kernelSize = 3;
+
+	ridges.create(sourceImage.size(), sourceImage.type());
+	cvtColor(sourceImage, grayImg, cv::COLOR_BGR2GRAY);
+
+	cv::blur(grayImg, detectedEdges, cv::Size(3, 3));
+	cv::Canny(detectedEdges, detectedEdges, low, low * r, kernelSize);
+	ridges = cv::Scalar::all(0);
+	sourceImage.copyTo(ridges, detectedEdges);
+	makeWhite(ridges);
+
+	cv::Mat dest;
+	cvtColor(ridges, dest, cv::COLOR_BGR2GRAY);
+
+	std::vector<cv::Vec4i> lines; 
+	HoughLinesP(dest, lines, 1, CV_PI / 180, 10, 10, 3); 
+	for (int i = 0; i < lines.size(); i++) {
+		cv::Vec4i l = lines[i];
+		cv::line(sourceImage, cv::Point(l[0], l[1]), cv::Point(l[2], l[3]), cv::Scalar(0, 0, 255), 1, cv::LINE_AA);
+	}
+	imwrite("./morph.png", sourceImage);
+}
+
+int sign(float value) {
+	if (value == 0)
+		return 0;
+	if (value < 0)
+		return -1;
+	if (value > 0)
+		return 1;
+}
+
+void getSaliency(cv::Mat& image) {
+	cv::Mat dest;
+	dest.create(image.size(), image.type());
+
+	for (int y = 0; y < image.cols; y++) {
+		for (int x = 0; x < image.rows; x++) {
+			cv::Point2d p(y, x);
+			// from the paper design and use of steerable filters
+			float Gxx = 0.9213 * (2 * x * x - 1) * exp(-(x * x + y * y));
+			float Gxy = 1.843 * x * y * exp(-(x * x + y * y));
+			float Gyy = 0.9213 * (2 * y * y - 1) * exp(-(x * x + y * y));
+	
+			float cos2t = (Gxx - Gyy) * sign(Gxx + Gyy);
+			float sin2t = -2 * Gxy * sign(Gxx + Gyy);
+	
+			float costcost = (cos2t + 1) / 2.0;
+			float sintsint = (1 - cos2t) / 2.0;
+			
+			float Gt = Gxx * costcost - Gxy * sin2t + Gyy * sintsint;
+	
+			dest.at<cv::Vec3b>(p) = Gt;
+	
+			std::cout << Gt << '\n';
+		}
+	}
+	imwrite("morph.png", dest);
+}
+
+void generateMorph(cv::Mat sourceImage, cv::Mat targetImage) {
+	cv::Mat destImage(sourceImage.rows, sourceImage.cols, sourceImage.type(), cv::Scalar(0, 0, 0));
+	//double a = 10, b = 1.5, p = 0.2;
+	//
+	//for (int col = 0; col < targetImage.cols; col++) {
+	//	for (int row = 0; row < targetImage.rows; row++) {
+	//		cv::Point2d destX(col, row);
+	//		cv::Point2d dispSum(0, 0);
+	//		double weightSum = 0;
+	//
+	//		for (int i = 0; i < targetEdges.size(); i++) {
+	//			cv::Point2d destP = convToPoint2d(targetEdges[i].head);
+	//			cv::Point2d destQ = convToPoint2d(targetEdges[i].tail);
+	//			cv::Point2d sourceP = convToPoint2d(sourceEdges[i].head);
+	//			cv::Point2d sourceQ = convToPoint2d(sourceEdges[i].tail);
+	//
+	//			float u = (destX - destP).dot(destQ - destP) / (cv::norm(destQ - destP) * cv::norm(destQ - destP));
+	//			float v = (destX - destP).dot(perp(destQ - destP)) / cv::norm(destQ - destP);
+	//
+	//			cv::Point2d sourceX = sourceP + u * (sourceQ - sourceP) + (v * perp(sourceQ - sourceP)) / cv::norm(sourceQ - sourceP);
+	//			cv::Point2d disp = sourceX - destX;
+	//
+	//			double dist = 0;
+	//			if (u >= 1)
+	//				dist = cv::norm(destX - destQ);
+	//			else if (u <= 0)
+	//				dist = cv::norm(destX - destP);
+	//			else
+	//				dist = std::abs(v);
+	//
+	//			double weight = std::pow(std::pow(cv::norm(destQ - destP), p) / (a + dist), b);
+	//
+	//			weightSum += weight;
+	//			dispSum += disp * weight;
+	//		}
+	//		cv::Point2d finalX = destX + dispSum / weightSum;
+	//		clampToImage(finalX, sourceImage);
+	//		destImage.at<cv::Vec3b>(destX) = sourceImage.at<cv::Vec3b>(std::trunc(finalX.y), std::trunc(finalX.x));
+	//	}
+	//}
+	//imwrite("./morph.png", destImage);
+	getLinesUsingRidges(sourceImage);
 	reloadMorphed = true;
 }
 
@@ -277,7 +357,7 @@ int main() {
 	ImGui_ImplGlfw_InitForOpenGL(window, true);
 	ImGui_ImplOpenGL3_Init(glsl_version);
 
-	std::string sourcePathBuffer, targetPathBuffer;
+	std::string sourcePathBuffer = "target2.png", targetPathBuffer = "target2.png";
 	cv::Mat sourceImage, targetImage, morphedImage;
 
 	GLuint sourceTexture, targetTexture, morphedTexture;
